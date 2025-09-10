@@ -23,12 +23,15 @@ interface StreamStatus {
   is_live: boolean;
   stream_type?: 'playlist' | 'obs';
   transmission?: {
+    id: number;
     titulo: string;
+    codigo_playlist: number;
     stats: {
       viewers: number;
       bitrate: number;
       uptime: string;
     };
+    platforms: any[];
   };
   obs_stream?: {
     is_live: boolean;
@@ -64,6 +67,7 @@ const Dashboard: React.FC = () => {
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string>('');
   const [showPlayer, setShowPlayer] = useState(false);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [playlistName, setPlaylistName] = useState<string>('');
 
   const userLogin = user?.usuario || (user?.email ? user.email.split('@')[0] : `user_${user?.id || 'usuario'}`);
 
@@ -143,16 +147,37 @@ const Dashboard: React.FC = () => {
         const data = await response.json();
         setStreamStatus(data);
         
-        // Definir URL do player baseado no status
+        // Definir URL do player e nome baseado no status
         if (data.is_live) {
           if (data.stream_type === 'obs' || data.obs_stream?.is_live) {
             setCurrentVideoUrl(`${userLogin}/live/${userLogin}_live.mp4`);
+            setPlaylistName('Transmissão OBS');
           } else if (data.transmission) {
+            // Para playlist, usar URL específica da playlist
             setCurrentVideoUrl(`${userLogin}/playlist/${userLogin}_playlist.mp4`);
+            
+            // Buscar nome da playlist
+            if (data.transmission.codigo_playlist) {
+              try {
+                const playlistResponse = await fetch(`/api/playlists`, {
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+                if (playlistResponse.ok) {
+                  const playlists = await playlistResponse.json();
+                  const playlist = playlists.find((p: any) => p.id === data.transmission.codigo_playlist);
+                  setPlaylistName(playlist ? `Playlist: ${playlist.nome}` : data.transmission.titulo);
+                }
+              } catch (error) {
+                setPlaylistName(data.transmission.titulo);
+              }
+            } else {
+              setPlaylistName(data.transmission.titulo);
+            }
           }
           setShowPlayer(true);
         } else {
           setShowPlayer(false);
+          setPlaylistName('');
         }
       }
     } catch (error) {
@@ -369,7 +394,7 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center space-x-3">
               <div className="w-4 h-4 bg-white rounded-full animate-pulse"></div>
               <h2 className="text-xl font-bold">
-                {streamStatus.stream_type === 'obs' ? 'TRANSMISSÃO OBS ATIVA' : 'TRANSMISSÃO PLAYLIST ATIVA'}
+                {streamStatus.stream_type === 'obs' ? 'TRANSMISSÃO OBS ATIVA' : 'PLAYLIST EM TRANSMISSÃO'}
               </h2>
             </div>
             <div className="flex items-center space-x-4 text-sm">
@@ -394,9 +419,9 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
           
-          {streamStatus.transmission && (
+          {streamStatus.transmission && playlistName && (
             <p className="text-pink-100">
-              <strong>Título:</strong> {streamStatus.transmission.titulo}
+              <strong>Playlist:</strong> {playlistName}
             </p>
           )}
         </div>
@@ -427,7 +452,7 @@ const Dashboard: React.FC = () => {
               {showPlayer && currentVideoUrl ? (
                 <VideoJSPlayer
                   src={currentVideoUrl}
-                  title={streamStatus?.transmission?.titulo || 'Transmissão ao Vivo'}
+                  title={playlistName || streamStatus?.transmission?.titulo || 'Transmissão ao Vivo'}
                   isLive={streamStatus?.is_live || false}
                   autoplay={false}
                   controls={true}
@@ -453,9 +478,14 @@ const Dashboard: React.FC = () => {
                   <div className="w-20 h-20 bg-white bg-opacity-10 rounded-2xl flex items-center justify-center mb-4">
                     <Play className="h-10 w-10" />
                   </div>
-                  <h3 className="text-xl font-semibold mb-2">Nenhuma transmissão ativa</h3>
+                  <h3 className="text-xl font-semibold mb-2">
+                    {streamStatus?.is_live ? 'Carregando transmissão...' : 'Nenhuma transmissão ativa'}
+                  </h3>
                   <p className="text-gray-300 text-center max-w-md">
-                    Inicie uma transmissão ou selecione um vídeo para visualizar aqui
+                    {streamStatus?.is_live 
+                      ? 'Aguarde o carregamento da transmissão'
+                      : 'Inicie uma playlist ou transmissão OBS para visualizar aqui'
+                    }
                   </p>
                 </div>
               )}

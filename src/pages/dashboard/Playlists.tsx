@@ -92,6 +92,15 @@ const Playlists: React.FC = () => {
   // Modal de ações da playlist
   const [showActionModal, setShowActionModal] = useState(false);
   const [selectedAction, setSelectedAction] = useState<PlaylistAction | null>(null);
+  
+  // Estado da transmissão de playlist
+  const [playlistTransmissionActive, setPlaylistTransmissionActive] = useState(false);
+  const [activePlaylistId, setActivePlaylistId] = useState<number | null>(null);
+  const [transmissionStats, setTransmissionStats] = useState({
+    viewers: 0,
+    bitrate: 0,
+    uptime: '00:00:00'
+  });
 
   const userBitrateLimit = user?.bitrate || 2500;
 
@@ -262,7 +271,121 @@ const Playlists: React.FC = () => {
 
   useEffect(() => {
     carregarPlaylists();
+    checkPlaylistTransmissionStatus();
+    
+    // Verificar status da transmissão a cada 30 segundos
+    const interval = setInterval(checkPlaylistTransmissionStatus, 30000);
+  const checkPlaylistTransmissionStatus = async () => {
+    try {
+      const token = await getToken();
+      const response = await fetch('/api/streaming/status', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.is_live && data.stream_type === 'playlist') {
+          setPlaylistTransmissionActive(true);
+          setActivePlaylistId(data.transmission?.codigo_playlist || null);
+          setTransmissionStats({
+            viewers: data.transmission?.stats?.viewers || 0,
+            bitrate: data.transmission?.stats?.bitrate || 0,
+            uptime: data.transmission?.stats?.uptime || '00:00:00'
+          });
+        } else {
+          setPlaylistTransmissionActive(false);
+          setActivePlaylistId(null);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao verificar status da transmissão:', error);
+    }
+  };
+
+  const startPlaylistTransmission = async (playlistId: number, playlistName: string) => {
+    try {
+      const token = await getToken();
+      
+      // Verificar se playlist tem vídeos
+      const videosResponse = await fetch(`/api/playlists/${playlistId}/videos`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (!videosResponse.ok) {
+        toast.error('Erro ao verificar vídeos da playlist');
+        return;
+      }
+      
+      const playlistVideos = await videosResponse.json();
+      if (playlistVideos.length === 0) {
+        toast.error('Esta playlist não possui vídeos');
+        return;
+      }
+      
+      // Iniciar transmissão da playlist
+      const response = await fetch('/api/streaming/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          titulo: `Playlist: ${playlistName}`,
+          descricao: `Transmissão automática da playlist ${playlistName}`,
+          playlist_id: playlistId,
+          platform_ids: [], // Sem plataformas externas por padrão
+          use_smil: true, // Usar arquivo SMIL
+          enable_recording: false
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success(`Playlist "${playlistName}" iniciada com sucesso!`);
+        setActivePlaylistId(playlistId);
+        setPlaylistTransmissionActive(true);
+        checkPlaylistTransmissionStatus();
+      } else {
+        toast.error(result.error || 'Erro ao iniciar playlist');
+      }
+    } catch (error) {
+      console.error('Erro ao iniciar playlist:', error);
+      toast.error('Erro ao iniciar transmissão da playlist');
+    }
+  };
+
+  const stopPlaylistTransmission = async () => {
+    if (!confirm('Deseja parar a transmissão da playlist?')) return;
+
+    try {
+      const token = await getToken();
+      const response = await fetch('/api/streaming/stop', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          stream_type: 'playlist'
+        })
+      });
+    return () => clearInterval(interval);
+      const result = await response.json();
   }, []);
+      if (result.success) {
+        toast.success('Transmissão da playlist parada com sucesso!');
+        setPlaylistTransmissionActive(false);
+        setActivePlaylistId(null);
+        setTransmissionStats({ viewers: 0, bitrate: 0, uptime: '00:00:00' });
+      } else {
+        toast.error(result.error || 'Erro ao parar transmissão');
+      }
+    } catch (error) {
+      console.error('Erro ao parar transmissão:', error);
+      toast.error('Erro ao parar transmissão da playlist');
+    }
+  };
 
   const abrirModal = async (playlist?: Playlist) => {
     setStatus(null);
@@ -759,12 +882,15 @@ const Playlists: React.FC = () => {
             body: JSON.stringify({
               titulo: `Transmissão: ${selectedAction.playlistName}`,
               playlist_id: selectedAction.playlistId,
-              platform_ids: [] // Sem plataformas por padrão
+              platform_ids: [], // Sem plataformas por padrão
+              use_smil: true, // Usar arquivo SMIL
+              enable_recording: false
             })
           });
 
           if (startResponse.ok) {
             toast.success('Transmissão da playlist iniciada!');
+            checkPlaylistTransmissionStatus();
           } else {
             const errorData = await startResponse.json();
             toast.error(errorData.error || 'Erro ao iniciar transmissão');
@@ -792,6 +918,7 @@ const Playlists: React.FC = () => {
 
           if (stopResponse.ok) {
             toast.success('Transmissão pausada/parada!');
+            checkPlaylistTransmissionStatus();
           } else {
             toast.error('Erro ao parar transmissão');
           }
@@ -867,6 +994,67 @@ const Playlists: React.FC = () => {
         </button>
       </header>
 
+      {/* Status da Transmissão de Playlist Ativa */}
+      {playlistTransmissionActive && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center">
+              <div className="h-3 w-3 bg-red-500 rounded-full animate-pulse mr-3"></div>
+              <h2 className="text-lg font-semibold text-green-800">
+                PLAYLIST EM TRANSMISSÃO
+              </h2>
+            </div>
+            <button
+              onClick={stopPlaylistTransmission}
+              className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 flex items-center"
+            >
+              <Square className="h-4 w-4 mr-2" />
+              Parar Transmissão
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 rounded-md">
+              <div className="flex items-center">
+                <Eye className="h-5 w-5 text-blue-600 mr-2" />
+                <div>
+                  <p className="text-sm text-gray-600">Espectadores</p>
+                  <p className="text-xl font-bold">{transmissionStats.viewers}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-md">
+              <div className="flex items-center">
+                <Zap className="h-5 w-5 text-green-600 mr-2" />
+                <div>
+                  <p className="text-sm text-gray-600">Bitrate</p>
+                  <p className="text-xl font-bold">{transmissionStats.bitrate} kbps</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-md">
+              <div className="flex items-center">
+                <Clock className="h-5 w-5 text-purple-600 mr-2" />
+                <div>
+                  <p className="text-sm text-gray-600">Tempo Ativo</p>
+                  <p className="text-xl font-bold">{transmissionStats.uptime}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <p className="text-green-800 text-sm">
+              <strong>Playlist ativa:</strong> {playlists.find(p => p.id === activePlaylistId)?.nome || 'Desconhecida'}
+            </p>
+            <p className="text-green-700 text-xs mt-1">
+              A playlist está sendo transmitida via arquivo SMIL. Verifique o player no Dashboard para visualizar.
+            </p>
+          </div>
+        </div>
+      )}
       {/* Informações sobre filtros */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <div className="flex items-start">
@@ -921,11 +1109,33 @@ const Playlists: React.FC = () => {
                       <Play size={16} />
                     </button>
                     <button
-                      title="Iniciar transmissão"
-                      onClick={() => openActionModal(playlist, 'start')}
-                      className="text-blue-600 hover:text-blue-800 transition p-1"
+                      title={playlistTransmissionActive && activePlaylistId === playlist.id ? "Playlist em transmissão" : "Iniciar Playlist"}
+                      onClick={() => {
+                        if (playlistTransmissionActive && activePlaylistId === playlist.id) {
+                          // Playlist já está ativa
+                          toast.info('Esta playlist já está em transmissão');
+                        } else if (playlistTransmissionActive) {
+                          // Outra playlist está ativa
+                          toast.warning('Pare a transmissão atual antes de iniciar outra playlist');
+                        } else {
+                          // Iniciar nova transmissão
+                          startPlaylistTransmission(playlist.id, playlist.nome);
+                        }
+                      }}
+                      className={`transition p-1 ${
+                        playlistTransmissionActive && activePlaylistId === playlist.id
+                          ? 'text-red-600 hover:text-red-800'
+                          : playlistTransmissionActive
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-blue-600 hover:text-blue-800'
+                      }`}
+                      disabled={playlistTransmissionActive && activePlaylistId !== playlist.id}
                     >
-                      <Play size={16} className="fill-current" />
+                      {playlistTransmissionActive && activePlaylistId === playlist.id ? (
+                        <Square size={16} className="fill-current" />
+                      ) : (
+                        <Radio size={16} />
+                      )}
                     </button>
                     <button
                       title="Agendar playlist"
@@ -937,14 +1147,24 @@ const Playlists: React.FC = () => {
                     <button
                       title="Editar"
                       onClick={() => abrirModal(playlist)}
-                      className="text-blue-600 hover:text-blue-800 transition p-1"
+                      className={`transition p-1 ${
+                        playlistTransmissionActive && activePlaylistId === playlist.id
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-blue-600 hover:text-blue-800'
+                      }`}
+                      disabled={playlistTransmissionActive && activePlaylistId === playlist.id}
                     >
                       <Edit2 size={16} />
                     </button>
                     <button
                       title="Deletar"
                       onClick={() => confirmarDeletarPlaylist(playlist)}
-                      className="text-red-600 hover:text-red-800 transition p-1"
+                      className={`transition p-1 ${
+                        playlistTransmissionActive && activePlaylistId === playlist.id
+                          ? 'text-gray-400 cursor-not-allowed'
+                          : 'text-red-600 hover:text-red-800'
+                      }`}
+                      disabled={playlistTransmissionActive && activePlaylistId === playlist.id}
                     >
                       <Trash2 size={16} />
                     </button>

@@ -38,7 +38,16 @@ router.get('/iframe', async (req, res) => {
       // Stream ao vivo
       const isProduction = process.env.NODE_ENV === 'production';
       const wowzaHost = isProduction ? 'samhost.wcore.com.br' : '51.222.156.223';
-      videoUrl = `http://${wowzaHost}:1935/samhost/${stream}/playlist.m3u8`;
+      
+      // Verificar se é stream de playlist ou OBS
+      if (stream.includes('_playlist')) {
+        // Stream de playlist - usar aplicação específica do usuário
+        const userFromStream = stream.replace('_playlist', '');
+        videoUrl = `http://${wowzaHost}:1935/${userFromStream}/${userFromStream}/playlist.m3u8`;
+      } else {
+        // Stream OBS - usar aplicação samhost
+        videoUrl = `http://${wowzaHost}:1935/samhost/${stream}/playlist.m3u8`;
+      }
       title = `Stream: ${stream}`;
       isLive = true;
     } else if (playlist) {
@@ -130,7 +139,28 @@ router.get('/iframe', async (req, res) => {
       // Stream padrão do usuário
       const isProduction = process.env.NODE_ENV === 'production';
       const wowzaHost = isProduction ? 'samhost.wcore.com.br' : '51.222.156.223';
-      videoUrl = `http://${wowzaHost}:1935/samhost/${userLogin}_live/playlist.m3u8`;
+      
+      // Verificar se há transmissão de playlist ativa primeiro
+      try {
+        const [activePlaylist] = await db.execute(
+          'SELECT codigo FROM transmissoes WHERE codigo_stm = ? AND status = "ativa" LIMIT 1',
+          [userId]
+        );
+        
+        if (activePlaylist.length > 0) {
+          // Usar stream de playlist
+          videoUrl = `http://${wowzaHost}:1935/${userLogin}/${userLogin}/playlist.m3u8`;
+          title = `Playlist: ${userLogin}`;
+        } else {
+          // Usar stream OBS
+          videoUrl = `http://${wowzaHost}:1935/samhost/${userLogin}_live/playlist.m3u8`;
+          title = `Stream: ${userLogin}`;
+        }
+      } catch (error) {
+        // Fallback para OBS
+        videoUrl = `http://${wowzaHost}:1935/samhost/${userLogin}_live/playlist.m3u8`;
+        title = `Stream: ${userLogin}`;
+      }
       title = `Stream: ${userLogin}`;
       isLive = true;
     }
@@ -509,7 +539,7 @@ router.get('/status', authMiddleware, async (req, res) => {
         ...streamStatus,
         has_active_transmission: true,
         transmission_type: 'playlist',
-        stream_url: `http://samhost.wcore.com.br:1935/samhost/${userLogin}_playlist/playlist.m3u8`,
+        stream_url: `http://samhost.wcore.com.br:1935/${userLogin}/${userLogin}/playlist.m3u8`,
         title: transmission.titulo,
         playlist_name: transmission.playlist_nome
       };

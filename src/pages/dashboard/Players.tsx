@@ -36,6 +36,8 @@ const Players: React.FC = () => {
   const [playerUrl, setPlayerUrl] = useState('');
   const [embedCode, setEmbedCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [playlistTransmissionActive, setPlaylistTransmissionActive] = useState(false);
+  const [activePlaylistName, setActivePlaylistName] = useState<string>('');
 
   const userLogin = user?.usuario || (user?.email ? user.email.split('@')[0] : `user_${user?.id || 'usuario'}`);
 
@@ -70,7 +72,27 @@ const Players: React.FC = () => {
       
       if (streamResponse.ok) {
         const streamData = await streamResponse.json();
-        setLiveStreamActive(streamData.success && streamData.is_live && streamData.stream_type === 'playlist');
+        const isPlaylistActive = streamData.success && streamData.is_live && streamData.stream_type === 'playlist';
+        setLiveStreamActive(isPlaylistActive);
+        setPlaylistTransmissionActive(isPlaylistActive);
+        
+        if (isPlaylistActive && streamData.transmission) {
+          // Buscar nome da playlist
+          try {
+            const playlistsResponse = await fetch('/api/playlists', {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (playlistsResponse.ok) {
+              const playlists = await playlistsResponse.json();
+              const playlist = playlists.find((p: any) => p.id === streamData.transmission.codigo_playlist);
+              setActivePlaylistName(playlist ? playlist.nome : streamData.transmission.titulo);
+            }
+          } catch (error) {
+            setActivePlaylistName(streamData.transmission.titulo);
+          }
+        } else {
+          setActivePlaylistName('');
+        }
       }
     } catch (error) {
       console.error('Erro ao verificar streams:', error);
@@ -117,10 +139,11 @@ const Players: React.FC = () => {
   };
 
   const getActiveStreamUrl = () => {
-    if (obsStreamActive) {
-      return `http://samhost.wcore.com.br:1935/samhost/${userLogin}_live/playlist.m3u8`;
-    } else if (liveStreamActive) {
+    if (playlistTransmissionActive) {
+      // Priorizar playlist se estiver ativa
       return `http://samhost.wcore.com.br:1935/samhost/${userLogin}_playlist/playlist.m3u8`;
+    } else if (obsStreamActive) {
+      return `http://samhost.wcore.com.br:1935/samhost/${userLogin}_live/playlist.m3u8`;
     } else if (sampleVideos.length > 0) {
       return getVideoUrl(sampleVideos[0].url);
     }
@@ -128,10 +151,10 @@ const Players: React.FC = () => {
   };
 
   const getActiveStreamName = () => {
-    if (obsStreamActive) {
-      return `${userLogin}_live`;
-    } else if (liveStreamActive) {
+    if (playlistTransmissionActive) {
       return `${userLogin}_playlist`;
+    } else if (obsStreamActive) {
+      return `${userLogin}_live`;
     }
     return `${userLogin}_live`;
   };
@@ -436,7 +459,8 @@ const Players: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
                 <span className="text-sm font-medium text-red-600">
-                  {obsStreamActive ? 'OBS AO VIVO' : 'PLAYLIST AO VIVO'}
+                  {playlistTransmissionActive ? `PLAYLIST: ${activePlaylistName}` :
+                   obsStreamActive ? 'OBS AO VIVO' : 'PLAYLIST AO VIVO'}
                 </span>
               </div>
             )}
@@ -477,8 +501,8 @@ const Players: React.FC = () => {
                 className="w-full bg-primary-600 text-white px-4 py-2 rounded-md hover:bg-primary-700 flex items-center justify-center"
               >
                 <Eye className="h-4 w-4 mr-2" />
-                {obsStreamActive ? 'Visualizar OBS ao Vivo' : 
-                 liveStreamActive ? 'Visualizar Playlist ao Vivo' : 
+                {playlistTransmissionActive ? `Visualizar Playlist: ${activePlaylistName}` :
+                 obsStreamActive ? 'Visualizar OBS ao Vivo' : 
                  'Visualizar Stream'}
               </button>
 
@@ -493,11 +517,17 @@ const Players: React.FC = () => {
               )}
               
               <button
-                onClick={() => window.open(playerUrl || `/api/player-port/iframe?stream=${userLogin}_live`, '_blank')}
+                onClick={() => {
+                  const streamName = getActiveStreamName();
+                  const url = playerUrl || `/api/player-port/iframe?stream=${streamName}`;
+                  window.open(url, '_blank');
+                }}
                 className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center justify-center"
               >
                 <ExternalLink className="h-4 w-4 mr-2" />
-                {obsStreamActive || liveStreamActive ? 'Abrir Stream Externo' : 'Abrir Player Externo'}
+                {playlistTransmissionActive ? 'Abrir Playlist Externa' :
+                 obsStreamActive ? 'Abrir OBS Externo' : 
+                 'Abrir Player Externo'}
               </button>
             </div>
           </div>
@@ -682,15 +712,15 @@ const Players: React.FC = () => {
           <h4 className="font-medium mb-2">Status das Transmissões:</h4>
           <div className="flex items-center space-x-4 text-sm">
             <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${obsStreamActive ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}></div>
-              <span className={obsStreamActive ? 'text-red-600 font-medium' : 'text-gray-500'}>
-                OBS {obsStreamActive ? 'AO VIVO' : 'OFFLINE'}
+              <div className={`w-2 h-2 rounded-full ${playlistTransmissionActive ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`}></div>
+              <span className={playlistTransmissionActive ? 'text-blue-600 font-medium' : 'text-gray-500'}>
+                Playlist {playlistTransmissionActive ? `"${activePlaylistName}" AO VIVO` : 'OFFLINE'}
               </span>
             </div>
             <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${liveStreamActive ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></div>
-              <span className={liveStreamActive ? 'text-green-600 font-medium' : 'text-gray-500'}>
-                Playlist {liveStreamActive ? 'AO VIVO' : 'OFFLINE'}
+              <div className={`w-2 h-2 rounded-full ${obsStreamActive ? 'bg-red-500 animate-pulse' : 'bg-gray-300'}`}></div>
+              <span className={obsStreamActive ? 'text-red-600 font-medium' : 'text-gray-500'}>
+                OBS {obsStreamActive ? 'AO VIVO' : 'OFFLINE'}
               </span>
             </div>
           </div>
@@ -726,10 +756,10 @@ const Players: React.FC = () => {
           </p>
         </div>
         
-        {(obsStreamActive || liveStreamActive) && (
+        {(obsStreamActive || playlistTransmissionActive) && (
           <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
             <p className="text-green-800 text-sm font-medium">
-              🎉 Transmissão ativa detectada! Os players agora mostram seu conteúdo ao vivo.
+              🎉 {playlistTransmissionActive ? `Playlist "${activePlaylistName}" em transmissão!` : 'Transmissão OBS ativa!'} Os players agora mostram seu conteúdo ao vivo.
             </p>
           </div>
         )}

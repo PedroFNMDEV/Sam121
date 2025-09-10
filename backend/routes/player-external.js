@@ -100,7 +100,7 @@ router.get('/status', authMiddleware, async (req, res) => {
         user_login: userLogin,
         has_active_transmission: true,
         transmission_type: 'playlist',
-        stream_url: `http://samhost.wcore.com.br:1935/samhost/${userLogin}_playlist/playlist.m3u8`,
+        stream_url: `http://samhost.wcore.com.br:1935/${userLogin}/${userLogin}/playlist.m3u8`,
         title: transmission.titulo,
         playlist_name: transmission.playlist_nome
       };

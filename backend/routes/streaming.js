@@ -318,10 +318,11 @@ router.get('/status', authMiddleware, async (req, res) => {
       `SELECT 
         t.codigo as id,
         t.titulo,
+        t.codigo_playlist,
         t.status,
         t.data_inicio,
-        t.codigo_playlist,
-        t.wowza_stream_id
+        t.wowza_stream_id,
+        t.use_smil
        FROM transmissoes t
        WHERE t.codigo_stm = ? AND t.status = 'ativa'
        ORDER BY t.data_inicio DESC
@@ -384,6 +385,7 @@ router.get('/status', authMiddleware, async (req, res) => {
       stream_type: 'playlist',
       transmission: {
         ...transmission,
+        codigo_playlist: transmission.codigo_playlist,
         stats: {
           viewers: stats.viewers,
           bitrate: stats.bitrate,
@@ -417,7 +419,8 @@ router.post('/start', authMiddleware, async (req, res) => {
       platform_ids = [],
       settings = {},
       bitrate_override = null,
-      enable_recording = false
+      enable_recording = false,
+      use_smil = false
     } = req.body;
 
     const userId = req.user.id;
@@ -456,13 +459,13 @@ router.post('/start', authMiddleware, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Já existe uma transmissão ativa' });
     }
 
-    // Buscar vídeos da playlist
+    // Buscar vídeos da playlist (nova estrutura)
     const [playlistVideos] = await db.execute(
-      `SELECT pv.*, pv.video as nome, pv.path_video as url
-       FROM playlists_videos pv
-       WHERE pv.codigo_playlist = ?
-       ORDER BY pv.ordem`,
-      [playlist_id]
+      `SELECT v.id, v.nome, v.url, v.caminho, v.duracao, v.bitrate_video
+       FROM videos v
+       WHERE v.playlist_id = ? AND v.codigo_cliente = ?
+       ORDER BY v.id`,
+      [playlist_id, userId]
     );
 
     if (playlistVideos.length === 0) {
@@ -538,9 +541,9 @@ router.post('/start', authMiddleware, async (req, res) => {
     const [transmissionResult] = await db.execute(
       `INSERT INTO transmissoes (
         codigo_stm, titulo, descricao, codigo_playlist, 
-        wowza_stream_id, status, data_inicio, settings, bitrate_usado
-      ) VALUES (?, ?, ?, ?, ?, 'ativa', NOW(), ?, ?)`,
-      [userId, titulo, descricao || '', playlist_id, streamId, JSON.stringify(settings), allowedBitrate]
+        wowza_stream_id, status, data_inicio, settings, bitrate_usado, use_smil
+      ) VALUES (?, ?, ?, ?, ?, 'ativa', NOW(), ?, ?, ?)`,
+      [userId, titulo, descricao || '', playlist_id, streamId, JSON.stringify(settings), allowedBitrate, use_smil ? 1 : 0]
     );
 
     const transmissionId = transmissionResult.insertId;
@@ -554,14 +557,26 @@ router.post('/start', authMiddleware, async (req, res) => {
         [transmissionId, platformId]
       );
     }
+    // Se usar SMIL, atualizar arquivo SMIL do usuário
+    if (use_smil) {
+      try {
+        const PlaylistSMILService = require('../services/PlaylistSMILService');
+        await PlaylistSMILService.updateUserSMIL(userId, userLogin, wowzaResult.data?.serverId || 1);
+        console.log(`✅ Arquivo SMIL atualizado para transmissão da playlist ${playlist_id}`);
+      } catch (smilError) {
+        console.warn('Erro ao atualizar arquivo SMIL:', smilError.message);
+      }
+    }
 
     res.json({
       success: true,
       transmission: {
         id: transmissionId,
         titulo,
+        codigo_playlist: playlist_id,
         wowza_stream_id: streamId,
-        bitrate_usado: allowedBitrate
+        bitrate_usado: allowedBitrate,
+        use_smil: use_smil
       },
       wowza_data: wowzaResult.data,
       user_limits: limitsCheck.limits,
