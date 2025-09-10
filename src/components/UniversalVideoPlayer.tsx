@@ -95,6 +95,12 @@ const UniversalVideoPlayer: React.FC<UniversalVideoPlayerProps> = ({
       return src;
     }
 
+    // Para playlist, construir URL HLS correta
+    if (src.includes('/playlist/') && src.includes('_playlist.mp4')) {
+      const userLogin = src.split('/')[0];
+      return `http://samhost.wcore.com.br:1935/${userLogin}/${userLogin}/playlist.m3u8`;
+    }
+
     // Para vídeos SSH, usar URL diretamente
     if (src.includes('/api/videos-ssh/')) {
       return src;

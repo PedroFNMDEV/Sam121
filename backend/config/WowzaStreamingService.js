@@ -569,12 +569,14 @@ class WowzaStreamingService {
             const maxBitrate = userConfig.bitrate || 2500;
             const streamBitrate = Math.min(2500, maxBitrate);
 
-            const appResult = await this.ensureApplication();
+            // Para playlist, usar aplicação específica do usuário
+            const appResult = await this.ensureApplication(userLogin);
             if (!appResult.success) {
                 throw new Error('Falha ao configurar aplicação no Wowza');
             }
 
-            const streamName = `${userLogin}_playlist_${Date.now()}`;
+            // Para playlist SMIL, usar nome específico
+            const streamName = `${userLogin}`;
 
             // Configurar push para plataformas
             const pushResults = await this.setupMultiPlatformPush(streamName, platforms, userConfig);
@@ -614,14 +616,15 @@ class WowzaStreamingService {
                 data: {
                     streamName,
                     wowzaStreamId: streamName,
-                    rtmpUrl: `rtmp://${this.wowzaHost}:1935/${this.wowzaApplication}`,
+                    rtmpUrl: `rtmp://${this.wowzaHost}:1935/${userLogin}`,
                     streamKey: streamName,
-                    playUrl: `http://${this.wowzaHost}:1935/${this.wowzaApplication}/${streamName}/playlist.m3u8`,
-                    hlsUrl: `http://${this.wowzaHost}:1935/${this.wowzaApplication}/${streamName}/playlist.m3u8`,
-                    dashUrl: `http://${this.wowzaHost}:1935/${this.wowzaApplication}/${streamName}/manifest.mpd`,
+                    playUrl: `http://${this.wowzaHost}:1935/${userLogin}/${streamName}/playlist.m3u8`,
+                    hlsUrl: `http://${this.wowzaHost}:1935/${userLogin}/${streamName}/playlist.m3u8`,
+                    dashUrl: `http://${this.wowzaHost}:1935/${userLogin}/${streamName}/manifest.mpd`,
                     pushResults,
                     serverInfo: this.serverInfo,
-                    recording: recordingResult?.success || false
+                    recording: recordingResult?.success || false,
+                    serverId: this.serverId
                 },
                 bitrate: streamBitrate
             };

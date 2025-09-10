@@ -55,6 +55,17 @@ const IFrameVideoPlayer: React.FC<IFrameVideoPlayerProps> = ({
       return videoPath;
     }
 
+    // Para playlist, construir URL específica
+    if (videoPath.includes('/playlist/') && videoPath.includes('_playlist.mp4')) {
+      const userLogin = videoPath.split('/')[0];
+      
+      // Usar sistema de porta para playlist
+      const baseUrl = process.env.NODE_ENV === 'production' 
+        ? 'http://samhost.wcore.com.br:3001'
+        : 'http://localhost:3001';
+      
+      return `${baseUrl}/api/player-port/iframe?stream=${userLogin}_playlist&player=1&contador=true&compartilhamento=true`;
+    }
     // Extrair informações do caminho
     const cleanPath = videoPath.replace(/^\/+/, '').replace(/^(content\/|streaming\/)?/, '');
     const pathParts = cleanPath.split('/');

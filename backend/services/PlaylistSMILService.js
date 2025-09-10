@@ -121,6 +121,48 @@ class PlaylistSMILService {
 
 `;
 
+            // Verificar se há transmissão ativa de playlist
+            const db = require('../config/database');
+            const [activeTransmission] = await db.execute(
+                'SELECT codigo_playlist FROM transmissoes WHERE codigo_stm = ? AND status = "ativa" LIMIT 1',
+                [userId]
+            );
+
+            // Se há transmissão ativa, incluir playlist atual
+            if (activeTransmission.length > 0) {
+                const activePlaylistId = activeTransmission[0].codigo_playlist;
+                
+                // Buscar dados da playlist ativa
+                const [activePlaylistRows] = await db.execute(
+                    'SELECT nome FROM playlists WHERE id = ?',
+                    [activePlaylistId]
+                );
+                
+                if (activePlaylistRows.length > 0) {
+                    const activePlaylistName = activePlaylistRows[0].nome.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    
+                    smilContent += `<playlist name="${activePlaylistName}" playOnStream="${userLogin}" repeat="true" scheduled="now">\n`;
+                    
+                    // Buscar vídeos da playlist ativa
+                    const [activeVideoRows] = await db.execute(
+                        `SELECT v.nome, v.url, v.caminho, v.duracao 
+                         FROM videos v 
+                         WHERE v.playlist_id = ? AND v.codigo_cliente = ?
+                         ORDER BY v.id`,
+                        [activePlaylistId, userId]
+                    );
+
+                    // Adicionar vídeos da playlist ativa
+                    for (const video of activeVideoRows) {
+                        const videoPath = this.buildVideoPathForSMIL(video, userLogin);
+                        const duration = video.duracao || -1;
+                        
+                        smilContent += `<video length="${duration}" src="mp4:${videoPath}" start="0"></video>\n`;
+                    }
+                    
+                    smilContent += `</playlist>\n\n`;
+                }
+            }
             // Processar agendamentos para gerar playlists no formato correto
             for (const agendamento of agendamentos) {
                 const playlistName = agendamento.playlist_nome.toLowerCase().replace(/[^a-z0-9]/g, '');

@@ -394,14 +394,23 @@ const VideoJSPlayer: React.FC<VideoJSPlayerProps> = ({
       // Detectar tipo de fonte
       const isHLS = src.includes('.m3u8') || isLive;
       
+      // Para playlist, construir URL correta
+      let finalSrc = src;
+      if (src.includes('/playlist/') && src.includes('_playlist.mp4')) {
+        // Converter URL de playlist para HLS
+        const userLogin = src.split('/')[0];
+        finalSrc = `http://samhost.wcore.com.br:1935/${userLogin}/${userLogin}/playlist.m3u8`;
+        console.log('🎵 URL de playlist convertida:', finalSrc);
+      }
+      
       const sourceConfig = {
-        src: src,
+        src: finalSrc,
         type: isHLS ? 'application/x-mpegURL' : 'video/mp4',
         withCredentials: false
       };
 
       // Configurar headers de autenticação se necessário
-      if (src.includes('/content/') || src.includes('/api/')) {
+      if (finalSrc.includes('/content/') || finalSrc.includes('/api/')) {
         const token = localStorage.getItem('auth_token');
         if (token) {
           sourceConfig.withCredentials = true;
